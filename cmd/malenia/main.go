@@ -108,7 +108,8 @@ func main() {
 	go func() {
 		log.Printf("[api] 管理后台监听 %s", *apiAddr)
 		if err := r.Run(*apiAddr); err != nil {
-			log.Fatalf("API 启动失败: %v", err)
+			log.Fatalf("API 启动失败: %v（提示: %s 端口被占用，可用 -api :8081 换端口，或结束已运行的 malenia 进程）",
+				err, *apiAddr)
 		}
 	}()
 
