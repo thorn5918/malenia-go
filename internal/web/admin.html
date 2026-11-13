@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>malenia-go 管理后台</title>
+<style>
+:root{--bg:#0f172a;--card:#1e293b;--line:#334155;--txt:#e2e8f0;--dim:#94a3b8;--pri:#38bdf8;--ok:#4ade80;--err:#f87171}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--txt);font:14px/1.6 system-ui,"Microsoft YaHei",sans-serif;padding-bottom:60px}
+a{color:var(--pri)}
+header{display:flex;align-items:center;gap:16px;padding:12px 24px;background:var(--card);border-bottom:1px solid var(--line)}
+header h1{font-size:18px;color:var(--pri)}
+header .sp{flex:1}
+header button,main button,.btn{background:#334155;color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:6px 14px;cursor:pointer;font-size:13px}
+.btn:hover,button:hover{border-color:var(--pri)}
+.btn.pri{background:var(--pri);color:#06263a;border:none;font-weight:600}
+.btn.danger{color:var(--err)}
+nav{display:flex;gap:4px;padding:10px 24px;background:var(--card);border-bottom:1px solid var(--line);flex-wrap:wrap}
+nav button{background:none;border:none;padding:6px 14px;color:var(--dim);border-radius:6px}
+nav button.on{background:#0ea5e922;color:var(--pri);font-weight:600}
+main{padding:20px 24px;max-width:1200px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+.card h3{font-size:14px;color:var(--dim);margin-bottom:12px;font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);word-break:break-all}
+th{color:var(--dim);font-weight:600;white-space:nowrap}
+tr:hover td{background:#ffffff08}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+.stat .v{font-size:22px;font-weight:700;color:var(--pri)}
+.stat .k{font-size:12px;color:var(--dim)}
+input,select{background:#0b1220;border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:7px 10px;font-size:13px;outline:none}
+input:focus{border-color:var(--pri)}
+.inline{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:11px;background:#334155}
+.tag.ok{background:#14532d;color:var(--ok)}
+.tag.off{background:#7f1d1d;color:#fecaca}
+.muted{color:var(--dim)}
+#login{max-width:360px;margin:12vh auto}
+#login .card{padding:28px}
+#login h2{margin-bottom:18px;color:var(--pri);text-align:center}
+#login input{width:100%;margin-bottom:12px}
+.err{color:var(--err)}.okc{color:var(--ok)}
+.hint{font-size:12px;color:var(--dim)}
+dialog{background:var(--card);color:var(--txt);border:1px solid var(--line);border-radius:10px;padding:20px;max-width:640px;width:92%}
+dialog::backdrop{background:#000a}
+dialog h3{margin-bottom:14px;color:var(--pri)}
+dialog .row{margin-bottom:10px;display:flex;gap:10px;align-items:center}
+dialog .row label{width:130px;color:var(--dim);font-size:13px}
+dialog .row input,dialog .row select{flex:1}
+form input[type=checkbox]{width:auto}
+</style>
+</head>
+<body>
+<div id="login">
+  <div class="card">
+    <h2>malenia-go</h2>
+    <input id="lu" placeholder="后台用户名">
+    <input id="lp" type="password" placeholder="密码" onkeydown="if(event.key=='Enter')login()">
+    <button class="btn pri" style="width:100%" onclick="login()">登 录</button>
+    <p class="err" id="lerr" style="margin-top:10px"></p>
+    <p class="hint" style="margin-top:10px">默认种子账户: admin / admin123</p>
+  </div>
+</div>
+
+<div id="app" style="display:none">
+<header>
+  <h1>malenia-go</h1><span class="muted">代理网关管理后台</span>
+  <div class="sp"></div>
+  <span id="who" class="muted"></span>
+  <button onclick="logout()">退出</button>
+</header>
+<nav id="nav">
+  <button data-p="dash" class="on">概览</button>
+  <button data-p="users">用户</button>
+  <button data-p="products">产品</button>
+  <button data-p="orders">订单</button>
+  <button data-p="sources">IP 源</button>
+  <button data-p="wl">白名单</button>
+  <button data-p="records">访问记录</button>
+</nav>
+<main id="view"></main>
+</div>
+
+<dialog id="dlg"><form method="dialog"><div id="dlgBody"></div>
+<div style="margin-top:16px;text-align:right"><button value="cancel" class="btn">关闭</button></div></form></dialog>
+
+<script>
+let TOKEN = localStorage.getItem('mg-token') || '';
+let ME = null;
+
+async function api(path, opts={}) {
+  const r = await fetch('/api'+path, {
+    ...opts,
+    headers: {'Content-Type':'application/json','X-Token':TOKEN, ...(opts.headers||{})},
+  });
+  const j = await r.json();
+  if (r.status === 401) { logout(); throw new Error('未登录'); }
+  if (j.code !== 0) throw new Error(j.msg || '请求失败');
+  return j.data;
+}
+const post = (p, body) => api(p, {method:'POST', body: JSON.stringify(body||{})});
+const del = p => api(p, {method:'DELETE'});
+const put = (p, body) => api(p, {method:'PUT', body: JSON.stringify(body||{})});
+
+function esc(s){ const d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML; }
+function time(s){ if(!s) return '-'; return new Date(s).toLocaleString('zh-CN',{hour12:false}); }
+function bytes(n){ if(n==null)return '-'; const u=['B','KB','MB','GB']; let i=0; while(n>=1024&&i<3){n/=1024;i++} return n.toFixed(1)+u[i]; }
+function tag(v,on,off){ return `<span class="tag ${v?(on||'ok'):(off||'off')}">${v?'启用':'停用'}</span>`; }
+
+async function login(){
+  const u=lu.value.trim(), p=lp.value;
+  try{
+    const j = await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p})}).then(r=>r.json());
+    if(j.code!==0){ lerr.textContent=j.msg; return; }
+    TOKEN=j.data.token; localStorage.setItem('mg-token',TOKEN);
+    ME=j.data; enter();
+  }catch(e){ lerr.textContent=e.message; }
+}
+function logout(){ TOKEN=''; localStorage.removeItem('mg-token'); location.reload(); }
+function enter(){
+  login.style.display='none'; app.style.display='block';
+  who.textContent = ME.username + (ME.role==='admin'?'（管理员）':'（用户）');
+  show('dash');
+}
+
+/* ---------------- 页面 ---------------- */
+const PAGES = {};
+function show(p){
+  document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.p===p));
+  const v = view; v.innerHTML='<p class="muted">加载中...</p>';
+  PAGES[p]().then(h=>v.innerHTML=h).catch(e=>{v.innerHTML=`<p class="err">${esc(e.message)}</p>`});
+}
+document.getElementById('nav').addEventListener('click',e=>{ if(e.target.dataset.p) show(e.target.dataset.p); });
+
+/* 概览 */
+PAGES.dash = async () => {
+  const [m, prods, records] = await Promise.all([api('/metrics'), api('/products'), api('/records')]);
+  const items = [
+    ['接入会话', m.sessions_total],['鉴权成功', m.auth_success],['鉴权失败', m.auth_failed],
+    ['上行流量', bytes(m.bytes_up)],['下行流量', bytes(m.bytes_down)],
+    ['分配失败', m.allocate_failed],['未识别协议', m.unknown_protocol],
+  ];
+  let h = `<div class="grid" style="margin-bottom:16px">${items.map(([k,v])=>`<div class="stat"><div class="v">${esc(v)}</div><div class="k">${k}</div></div>`).join('')}</div>`;
+  h += `<div class="card"><h3>代理产品端口</h3><table><tr><th>产品</th><th>端口</th><th>计费</th><th>价格</th><th>状态</th></tr>` +
+    prods.map(p=>`<tr><td>${esc(p.name)}</td><td>${p.listenPort}</td><td>${esc(p.billingType)}</td><td>${p.billingType==='traffic'?p.pricePerGB+'元/GB':p.billingType==='duration'?p.pricePerHour+'元/时':p.pricePerReq+'元/次'}</td><td>${tag(p.status)}</td></tr>`).join('')+'</table></div>';
+  h += `<div class="card"><h3>最近访问</h3><table><tr><th>时间</th><th>协议</th><th>目标</th><th>上行</th><th>下行</th></tr>` +
+    records.slice(0,8).map(r=>`<tr><td class="muted">${time(r.beginAt)}</td><td>${esc(r.protocol)}</td><td>${esc(r.targetHost)||'-'}</td><td>${bytes(r.uploadBytes)}</td><td>${bytes(r.downloadBytes)}</td></tr>`).join('')+'</table></div>';
+  return h;
+};
+
+/* 用户 */
+PAGES.users = async () => {
+  if (ME.role !== 'admin') return '<div class="card"><p class="muted">仅管理员可见</p></div>';
+  const us = await api('/users');
+  return `<div class="card"><div class="inline"><button class="btn pri" onclick="userDlg()">+ 新建用户</button></div>
+  <table><tr><th>ID</th><th>用户名</th><th>角色</th><th>余额(元)</th><th>状态</th><th>操作</th></tr>` +
+  us.map(u=>`<tr><td>${u.id}</td><td>${esc(u.username)}</td><td>${esc(u.role)}</td><td>${u.balance.toFixed(4)}</td><td>${tag(u.status)}</td>
+  <td><button onclick="recharge(${u.id},'${esc(u.username)}')">充值</button>
+  <button class="danger" onclick="toggleUser(${u.id},${u.status?0:1})">${u.status?'停用':'启用'}</button></td></tr>`).join('')+'</table></div>';
+};
+async function toggleUser(id,st){ try{ await put(`/users/${id}/status`,{status:st}); show('users'); }catch(e){ alert(e.message); } }
+function userDlg(){
+  dlgBody.innerHTML = `<h3>新建用户</h3><div class="row"><label>用户名</label><input id="fu"></div>
+  <div class="row"><label>密码(可选)</label><input id="fp" placeholder="默认 123456"></div>
+  <div class="row"><label>角色</label><select id="fr"><option value="user">user</option><option value="admin">admin</option></select></div>
+  <button class="btn pri" onclick="saveUser()">创建</button>`;
+  dlg.showModal();
+}
+async function saveUser(){
+  try{ await post('/users',{username:fu.value.trim(),password:fp.value,role:fr.value}); dlg.close(); show('users'); }
+  catch(e){ alert(e.message); }
+}
+async function recharge(id,name){
+  const amt = prompt(`给 ${name} 充值金额（元，可负数扣减）:`, '100');
+  if(amt===null) return;
+  try{ await post(`/users/${id}/recharge`,{amount:parseFloat(amt)}); show('users'); }catch(e){ alert(e.message); }
+}
+
+/* 产品 */
+PAGES.products = async () => {
+  const ps = await api('/products');
+  const admin = ME.role==='admin';
+  let h = `<div class="card"><h3>代理产品（每产品一个服务端口）</h3>`;
+  if(admin) h += `<div class="inline"><button class="btn pri" onclick="prodDlg()">+ 新建产品</button></div>`;
+  h += `<table><tr><th>产品</th><th>端口</th><th>计费</th><th>容错</th><th>超时</th><th>状态</th>${admin?'<th>操作</th>':''}</tr>` +
+  ps.map(p=>`<tr><td>${esc(p.name)}</td><td>${p.listenPort}</td><td>${esc(p.billingType)}</td><td>${p.failoverCount}</td><td>${p.connectTimeoutSec}s</td><td>${tag(p.status)}</td>
+  ${admin?`<td><button class="danger" onclick="delProd(${p.id})">删除</button></td>`:''}</tr>`).join('')+'</table></div>';
+  return h;
+};
+function prodDlg(){
+  dlgBody.innerHTML = `<h3>新建产品</h3>
+  <div class="row"><label>名称</label><input id="fpn"></div>
+  <div class="row"><label>监听端口</label><input id="fpp" type="number" value="9100"></div>
+  <div class="row"><label>计费方式</label><select id="fpb"><option value="traffic">traffic 按流量</option><option value="duration">duration 按小时</option><option value="count">count 按次</option></select></div>
+  <div class="row"><label>价格(元/GB)</label><input id="fpg" type="number" step="0.01" value="1"></div>
+  <div class="row"><label>价格(元/时)</label><input id="fph" type="number" step="0.01" value="0"></div>
+  <div class="row"><label>价格(元/次)</label><input id="fpr" type="number" step="0.0001" value="0"></div>
+  <div class="row"><label>failover 次数</label><input id="fpf" type="number" value="3"></div>
+  <button class="btn pri" onclick="saveProd()">创建</button>`;
+  dlg.showModal();
+}
+async function saveProd(){
+  try{
+    await post('/products',{name:fpn.value.trim(),listenPort:+fpp.value,billingType:fpb.value,
+      pricePerGB:+fpg.value,pricePerHour:+fph.value,pricePerReq:+fpr.value,failoverCount:+fpf.value});
+    dlg.close(); show('products');
+  }catch(e){ alert(e.message); }
+}
+async function delProd(id){ if(!confirm('确认删除该产品及其绑定？'))return; try{ await del(`/products/${id}`); show('products'); }catch(e){ alert(e.message); } }
+
+/* 订单 */
+PAGES.orders = async () => {
+  const [os, prods] = await Promise.all([api('/orders'), api('/products')]);
+  const mine = ME.role!=='admin';
+  let h = `<div class="card"><div class="inline">
+  <span class="muted">接入格式：curl -x <b>代理用户-路由参数:密码@服务器:产品端口</b></span>
+  <button class="btn pri" onclick="orderDlg(${mine})">+ 新建订单</button></div>
+  <table><tr><th>ID</th><th>代理账号</th><th>产品</th><th>已用流量</th><th>请求数</th><th>随机隧道</th><th>带宽</th><th>并发</th><th>状态</th><th>操作</th></tr>` +
+  os.map(o=>{
+    const p = prods.find(x=>x.id===o.productID)||{};
+    return `<tr><td>${o.id}</td><td><code>${esc(o.proxyUsername)}</code></td><td>${esc(p.name||o.productID)}</td>
+    <td>${bytes(o.usedBytes)}</td><td>${o.usedCount}</td><td>${o.randomTurning?'是':'否'}</td>
+    <td>${o.bandwidthKBps?o.bandwidthKBps+'KB/s':'不限'}</td><td>${o.concurrency||'不限'}</td><td>${tag(o.status)}</td>
+    <td><button class="danger" onclick="toggleOrder(${o.id},${o.status?0:1})">${o.status?'停用':'启用'}</button></td></tr>`;
+  }).join('')+'</table></div>';
+  return h;
+};
+function orderDlg(mine){
+  api('/products').then(ps=>{
+    const admin = !mine;
+    dlgBody.innerHTML = `<h3>新建订单</h3>
+    <div class="row"><label>产品</label><select id="fop">${ps.filter(p=>p.status).map(p=>`<option value="${p.id}">${esc(p.name)}(:${p.listenPort})</option>`).join('')}</select></div>
+    ${admin?`<div class="row"><label>归属用户ID</label><input id="foid" type="number"></div>`:''}
+    <div class="row"><label>代理用户名</label><input id="fou" placeholder="全局唯一，勿含 - 字符"></div>
+    <div class="row"><label>代理密码</label><input id="fow"></div>
+    <div class="row"><label>随机隧道</label><input id="for" type="checkbox"></div>
+    <div class="row"><label>带宽 KB/s(0不限)</label><input id="fob" type="number" value="0"></div>
+    <div class="row"><label>并发(0不限)</label><input id="foc" type="number" value="0"></div>
+    <button class="btn pri" onclick="saveOrder(${mine})">创建</button>`;
+    dlg.showModal();
+  });
+}
+async function saveOrder(mine){
+  const body = {productID:+fop.value, randomTurning:for.checked, bandwidthKBps:+fob.value, concurrency:+foc.value,
+    proxyUsername:fou.value.trim(), proxyPassword:fow.value};
+  if(!mine) body.userID = +(foid?.value||0);
+  try{ await post('/orders',body); dlg.close(); show('orders'); }catch(e){ alert(e.message); }
+}
+async function toggleOrder(id,st){ try{ await put(`/orders/${id}/status`,{status:st}); show('orders'); }catch(e){ alert(e.message); } }
+
+/* IP 源 */
+PAGES.sources = async () => {
+  const ss = await api('/sources');
+  const admin = ME.role==='admin';
+  let h = `<div class="card">`;
+  if(admin) h += `<div class="inline"><button class="btn pri" onclick="srcDlg()">+ 新建 IP 源</button></div>`;
+  h += `<table><tr><th>名称</th><th>类型</th><th>出口协议</th><th>提取地址</th><th>池大小</th><th>状态</th><th>最近同步</th><th>操作</th></tr>` +
+  ss.map(s=>`<tr><td>${esc(s.name)}</td><td>${esc(s.type)}</td><td>${esc(s.protocol)}</td>
+  <td class="muted">${esc(s.url||'-')}</td><td>${s.poolSize}</td><td>${tag(s.status)}</td><td class="muted">${time(s.lastSyncAt)}</td>
+  <td><button onclick="poolView(${s.id},'${esc(s.name)}')">池快照</button>
+  <button onclick="refreshSrc(${s.id})">同步</button>
+  <button onclick="itemsView(${s.id},'${esc(s.name)}')">条目</button>
+  ${admin?`<button class="danger" onclick="delSrc(${s.id})">删除</button>`:''}</td></tr>`).join('')+'</table></div>';
+  return h;
+};
+function srcDlg(){
+  dlgBody.innerHTML = `<h3>新建 IP 源</h3>
+  <div class="row"><label>名称</label><input id="fsn"></div>
+  <div class="row"><label>类型</label><select id="fst" onchange="document.getElementById('fsu').style.display=this.value==='api'?'flex':'none'"><option value="static">static 静态条目</option><option value="api">api 接口提取</option></select></div>
+  <div class="row" id="fsu" style="display:none"><label>提取 URL</label><input id="fsurl" placeholder="返回文本: ip:port,country,city,lng,lat"></div>
+  <div class="row"><label>出口协议</label><select id="fsp"><option value="http">http</option><option value="socks5">socks5</option><option value="direct">direct 直连</option></select></div>
+  <div class="row"><label>上游账密</label><input id="fsuu" placeholder="user:pass (可选)"></div>
+  <div class="row"><label>国家/城市</label><input id="fsc" placeholder="cn,hangzhou"></div>
+  <div class="row"><label>经纬度 lng,lat</label><input id="fsl" placeholder="120.15,30.27"></div>
+  <div class="row"><label>池上限</label><input id="fspool" type="number" value="200"></div>
+  <div class="row"><label>存活秒(0不限)</label><input id="fslife" type="number" value="0"></div>
+  <button class="btn pri" onclick="saveSrc()">创建</button>`;
+  dlg.showModal();
+}
+async function saveSrc(){
+  const [country,city] = fsc.value.split(',').map(x=>x.trim());
+  const [lng,lat] = fsl.value.split(',').map(x=>parseFloat(x)||0);
+  const uu = (fsuu.value||'').split(':');
+  const body = {name:fsn.value.trim(), type:fst.value, url:fsurl.value.trim(), protocol:fsp.value,
+    upstreamUser:uu[0]||'', upstreamPass:uu[1]||'', country:country||'', city:city||'', lng:lng||0, lat:lat||0,
+    poolSize:+fspool.value, lifetimeSec:+fslife.value, pollSec:300, healthCheck:true};
+  try{ await post('/sources',body); dlg.close(); show('sources'); }catch(e){ alert(e.message); }
+}
+async function delSrc(id){ if(!confirm('确认删除该源？'))return; try{ await del(`/sources/${id}`); show('sources'); }catch(e){ alert(e.message); } }
+async function refreshSrc(id){ try{ await post(`/sources/${id}/refresh`); show('sources'); }catch(e){ alert(e.message); } }
+async function poolView(id,name){
+  try{
+    const es = await api(`/sources/${id}/pool`);
+    dlgBody.innerHTML = `<h3>IP 池快照：${esc(name)}（${es.length} 条）</h3>
+    <div style="max-height:50vh;overflow:auto"><table><tr><th>出口</th><th>地区</th><th>成功/分配</th><th>连续失败</th><th>最近错误</th></tr>` +
+    es.map(e=>`<tr><td><code>${esc(e.addr)}</code></td><td>${esc(e.country||'-')}/${esc(e.city||'-')}</td>
+    <td>${e.success}/${e.assigned}</td><td>${e.fails}</td><td class="muted">${esc((e.lastErrors||[]).join('；')||'-')}</td></tr>`).join('')+'</table></div>';
+    dlg.showModal();
+  }catch(e){ alert(e.message); }
+}
+async function itemsView(id,name){
+  try{
+    const its = await api(`/sources/${id}/items`);
+    dlgBody.innerHTML = `<h3>static 条目：${esc(name)}（${its.length} 条）</h3>
+    <div class="inline"><input id="fih" placeholder="host" style="width:140px"><input id="fiport" type="number" placeholder="port" style="width:80px">
+    <input id="fiuser" placeholder="user:pass(可选)" style="width:140px"><input id="figeo" placeholder="country,city" style="width:140px">
+    <button class="btn pri" onclick="addItem(${id})">添加</button></div>
+    <div style="max-height:40vh;overflow:auto"><table><tr><th>出口</th><th>协议</th><th>地区</th><th>操作</th></tr>` +
+    its.map(i=>`<tr><td><code>${esc(i.host)}:${i.port}</code></td><td>${esc(i.protocol)}</td><td>${esc(i.country||'-')}/${esc(i.city||'-')}</td>
+    <td><button class="danger" onclick="delItem(${id},${i.id})">删除</button></td></tr>`).join('')+'</table></div>';
+    dlg.showModal();
+  }catch(e){ alert(e.message); }
+}
+async function addItem(sid){
+  const [user,pass] = (fiuser.value||'').split(':');
+  const [country,city] = (figeo.value||'').split(',').map(x=>x.trim());
+  try{ await post(`/sources/${sid}/items`,{host:fih.value.trim(), port:+fiport.value, user:user||'', pass:pass||'', country:country||'', city:city||''}); dlg.close(); itemsView(sid, '...'); }
+  catch(e){ alert(e.message); }
+}
+async function delItem(sid,iid){ try{ await del(`/sources/${sid}/items/${iid}`); dlg.close(); itemsView(sid,'...'); }catch(e){ alert(e.message); } }
+
+/* 白名单 */
+PAGES.wl = async () => {
+  const ws = await api('/whitelist');
+  return `<div class="card"><div class="inline">
+  <span class="muted">命中白名单的出口 IP 免账密鉴权，自动定位到所属用户的订单</span>
+  <input id="fwu" placeholder="用户ID(管理员)" style="width:130px"><input id="fwc" placeholder="CIDR 如 1.2.3.0/24">
+  <button class="btn pri" onclick="addWl()">添加</button></div>
+  <table><tr><th>ID</th><th>用户ID</th><th>CIDR</th><th>备注</th><th>操作</th></tr>` +
+  ws.map(w=>`<tr><td>${w.id}</td><td>${w.userId}</td><td><code>${esc(w.cidr)}</code></td><td>${esc(w.comment||'-')}</td>
+  <td><button class="danger" onclick="delWl(${w.id})">删除</button></td></tr>`).join('')+'</table></div>';
+};
+async function addWl(){
+  try{ await post('/whitelist',{userId:+(fwu.value||0), cidr:fwc.value.trim()}); show('wl'); }catch(e){ alert(e.message); }
+}
+async function delWl(id){ try{ await del(`/whitelist/${id}`); show('wl'); }catch(e){ alert(e.message); } }
+
+/* 访问记录 */
+PAGES.records = async () => {
+  const rs = await api('/records');
+  return `<div class="card"><h3>访问记录（最近 200 条）</h3>
+  <table><tr><th>开始</th><th>会话</th><th>用户/订单</th><th>协议</th><th>目标</th><th>上行</th><th>下行</th><th>状态</th></tr>` +
+  rs.map(r=>`<tr><td class="muted">${time(r.beginAt)}</td><td class="muted"><code>${esc(r.sessionID).slice(0,8)}</code></td>
+  <td>${r.userID}/${r.orderID}</td><td>${esc(r.protocol)}</td><td>${esc(r.targetHost)||'-'}</td>
+  <td>${bytes(r.uploadBytes)}</td><td>${bytes(r.downloadBytes)}</td>
+  <td class="${r.status==='ok'?'okc':'err'}">${esc(r.status)}${r.errMsg?' '+esc(r.errMsg):''}</td></tr>`).join('')+'</table></div>';
+};
+
+/* 启动 */
+if (TOKEN) {
+  fetch('/api/me',{headers:{'X-Token':TOKEN}}).then(r=>r.json()).then(j=>{
+    if(j.code===0){ ME=j.data; enter(); } else logout();
+  }).catch(()=>{});
+}
+</script>
+</body>
+</html>
