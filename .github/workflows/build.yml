@@ -33,7 +33,7 @@ jobs:
       - name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
         env:
           CGO_ENABLED: 0   # 纯 Go sqlite 驱动，无需 cgo
-        run: go build -trimpath -ldflags "-s -w" -o dist/malenia-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} ./cmd/malenia
+        run: go build -trimpath -ldflags "-s -w -X main.buildVersion=${{ github.ref_name }}" -o dist/malenia-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} ./cmd/malenia
 
       - uses: actions/upload-artifact@v4
         with:
