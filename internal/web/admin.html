@@ -37,10 +37,10 @@ input:focus{border-color:var(--pri)}
 .tag.ok{background:#14532d;color:var(--ok)}
 .tag.off{background:#7f1d1d;color:#fecaca}
 .muted{color:var(--dim)}
-#login{max-width:360px;margin:12vh auto}
-#login .card{padding:28px}
-#login h2{margin-bottom:18px;color:var(--pri);text-align:center}
-#login input{width:100%;margin-bottom:12px}
+#loginView{max-width:360px;margin:12vh auto}
+#loginView .card{padding:28px}
+#loginView h2{margin-bottom:18px;color:var(--pri);text-align:center}
+#loginView input{width:100%;margin-bottom:12px}
 .err{color:var(--err)}.okc{color:var(--ok)}
 .hint{font-size:12px;color:var(--dim)}
 dialog{background:var(--card);color:var(--txt);border:1px solid var(--line);border-radius:10px;padding:20px;max-width:640px;width:92%}
@@ -53,7 +53,7 @@ form input[type=checkbox]{width:auto}
 </style>
 </head>
 <body>
-<div id="login">
+<div id="loginView">
   <div class="card">
     <h2>malenia-go</h2>
     <input id="lu" placeholder="后台用户名">
@@ -110,7 +110,9 @@ function bytes(n){ if(n==null)return '-'; const u=['B','KB','MB','GB']; let i=0;
 function tag(v,on,off){ return `<span class="tag ${v?(on||'ok'):(off||'off')}">${v?'启用':'停用'}</span>`; }
 
 async function login(){
-  const u=lu.value.trim(), p=lp.value;
+  // 显式 getElementById，避免依赖隐式全局（元素 id 与函数同名时会被元素遮蔽）
+  const u=document.getElementById('lu').value.trim(), p=document.getElementById('lp').value;
+  const lerr=document.getElementById('lerr');
   try{
     const j = await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p})}).then(r=>r.json());
     if(j.code!==0){ lerr.textContent=j.msg; return; }
@@ -120,8 +122,9 @@ async function login(){
 }
 function logout(){ TOKEN=''; localStorage.removeItem('mg-token'); location.reload(); }
 function enter(){
-  login.style.display='none'; app.style.display='block';
-  who.textContent = ME.username + (ME.role==='admin'?'（管理员）':'（用户）');
+  document.getElementById('loginView').style.display='none';
+  document.getElementById('app').style.display='block';
+  document.getElementById('who').textContent = ME.username + (ME.role==='admin'?'（管理员）':'（用户）');
   show('dash');
 }
 
@@ -235,7 +238,7 @@ function orderDlg(mine){
     ${admin?`<div class="row"><label>归属用户ID</label><input id="foid" type="number"></div>`:''}
     <div class="row"><label>代理用户名</label><input id="fou" placeholder="全局唯一，勿含 - 字符"></div>
     <div class="row"><label>代理密码</label><input id="fow"></div>
-    <div class="row"><label>随机隧道</label><input id="for" type="checkbox"></div>
+    <div class="row"><label>随机隧道</label><input id="fort" type="checkbox"></div>
     <div class="row"><label>带宽 KB/s(0不限)</label><input id="fob" type="number" value="0"></div>
     <div class="row"><label>并发(0不限)</label><input id="foc" type="number" value="0"></div>
     <button class="btn pri" onclick="saveOrder(${mine})">创建</button>`;
@@ -243,7 +246,7 @@ function orderDlg(mine){
   });
 }
 async function saveOrder(mine){
-  const body = {productID:+fop.value, randomTurning:for.checked, bandwidthKBps:+fob.value, concurrency:+foc.value,
+  const body = {productID:+fop.value, randomTurning:fort.checked, bandwidthKBps:+fob.value, concurrency:+foc.value,
     proxyUsername:fou.value.trim(), proxyPassword:fow.value};
   if(!mine) body.userID = +(foid?.value||0);
   try{ await post('/orders',body); dlg.close(); show('orders'); }catch(e){ alert(e.message); }
