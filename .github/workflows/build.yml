@@ -18,6 +18,7 @@ jobs:
         include:
           - { goos: windows, goarch: amd64, ext: .exe }
           - { goos: windows, goarch: arm64, ext: .exe }
+          - { goos: windows, goarch: 386,   ext: .exe }
           - { goos: linux,   goarch: amd64, ext: '' }
           - { goos: linux,   goarch: arm64, ext: '' }
     steps:
@@ -32,8 +33,21 @@ jobs:
 
       - name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
         env:
-          CGO_ENABLED: 0   # 纯 Go sqlite 驱动，无需 cgo
+          CGO_ENABLED: 0          # 纯 Go sqlite 驱动，无需 cgo
+          GOOS: ${{ matrix.goos }}   # 必须显式传入，否则全部按 runner 平台编译
+          GOARCH: ${{ matrix.goarch }}
         run: go build -trimpath -ldflags "-s -w -X main.buildVersion=${{ github.ref_name }}" -o dist/malenia-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} ./cmd/malenia
+
+      - name: Sanity check (PE/ELF header)
+        run: |
+          f="dist/malenia-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}"
+          magic=$(head -c 4 "$f" | od -An -tx1 | tr -d ' \n')
+          echo "magic=$magic ($f)"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            echo "$magic" | grep -qi '^4d5a' || { echo '::error::不是 PE(MZ) 头，GOOS/GOARCH 未生效！'; exit 1; }
+          else
+            echo "$magic" | grep -qi '^7f454c46' || { echo '::error::不是 ELF 头！'; exit 1; }
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
