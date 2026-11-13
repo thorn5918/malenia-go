@@ -7,16 +7,18 @@ import (
 	"log"
 	"time"
 
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
 	"malenia-go/internal/model"
 )
 
-// Open 打开数据库（默认纯 Go 驱动的 sqlite，无需 cgo）
+// Open 打开数据库。glebarez/sqlite 为纯 Go 驱动（modernc），CGO_ENABLED=0 也能正常工作，
+// 因此 Windows/Linux 各架构的静态编译产物均可直接运行。
 func Open(path string) (*gorm.DB, error) {
-	return gorm.Open(sqlite.Open(path+"?_busy_timeout=5000"), &gorm.Config{
+	dsn := "file:" + path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+	return gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Warn),
 	})
 }
